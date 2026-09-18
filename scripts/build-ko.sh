@@ -42,15 +42,29 @@ echo "device      : $(head -c 200 "$DEVICE/vermagic.txt")"
 # --------------------------------------------------------------------------
 # 1. device CRCs win over the tree's
 # --------------------------------------------------------------------------
+# modpost's read_dump() is strict: every line must be tab separated and start
+# with a hex CRC, and a single comment or blank line aborts the whole build with
+# "parse error in symbol dump file". So build the merged file from validated
+# lines only, and report anything that had to be dropped.
+SYMVERS_FILTER='BEGIN{FS="\t"} NF>=3 && $1 ~ /^0x[0-9a-fA-F]+$/ {print}'
+
 if [ -f "$KDIR/Module.symvers" ]; then
     MERGED="$(mktemp)"
-    awk 'NR==FNR { if ($2 != "") ours[$2]=1; next } { if (!($2 in ours)) print }' \
-        "$DEVICE_SYMVERS" "$KDIR/Module.symvers" > "$MERGED" || true
-    grep -v '^#' "$DEVICE_SYMVERS" >> "$MERGED" || true
+    awk -F'\t' 'NR==FNR { if (NF>=3) ours[$2]=1; next } { if (NF>=3 && !($2 in ours)) print }' \
+        "$DEVICE_SYMVERS" "$KDIR/Module.symvers" \
+        | awk "$SYMVERS_FILTER" > "$MERGED" || true
+    awk "$SYMVERS_FILTER" "$DEVICE_SYMVERS" >> "$MERGED" || true
+
+    dropped_tree=$(awk 'BEGIN{FS="\t"} !(NF>=3 && $1 ~ /^0x[0-9a-fA-F]+$/)' "$KDIR/Module.symvers" | wc -l)
+    echo "      tree symvers: $(wc -l < "$KDIR/Module.symvers") lines, $dropped_tree dropped as malformed"
+    echo "      sample (cat -A, first line): $(head -1 "$KDIR/Module.symvers" | cat -A | head -c 120)"
+    echo "      merged head: $(head -1 "$MERGED")"
+    echo "      merged tail: $(tail -1 "$MERGED")"
+
     cp -f "$KDIR/Module.symvers" "$KDIR/Module.symvers.tree-backup" 2>/dev/null || true
     cp -f "$MERGED" "$KDIR/Module.symvers"
     rm -f "$MERGED"
-    echo "[1/4] merged symvers: $(grep -vc '^#' "$KDIR/Module.symvers" || true) entries (device CRCs override)"
+    echo "[1/4] merged symvers: $(wc -l < "$KDIR/Module.symvers") entries (device CRCs override)"
 else
     cp -f "$DEVICE_SYMVERS" "$KDIR/Module.symvers"
     echo "[1/4] tree had no Module.symvers; installed the device's"
