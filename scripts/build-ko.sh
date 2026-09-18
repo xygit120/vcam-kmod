@@ -42,18 +42,27 @@ echo "device      : $(head -c 200 "$DEVICE/vermagic.txt")"
 # --------------------------------------------------------------------------
 # 1. device CRCs win over the tree's
 # --------------------------------------------------------------------------
-# modpost's read_dump() is strict: every line must be tab separated and start
-# with a hex CRC, and a single comment or blank line aborts the whole build with
-# "parse error in symbol dump file". So build the merged file from validated
-# lines only, and report anything that had to be dropped.
+# modpost's read_dump() is strict: a single comment, blank line or wrong field
+# count aborts the whole build with "parse error in symbol dump file". GKI's
+# Module.symvers also carries a trailing namespace column, so mirror whatever
+# layout the tree uses when emitting our own lines.
 SYMVERS_FILTER='BEGIN{FS="\t"} NF>=3 && $1 ~ /^0x[0-9a-fA-F]+$/ {print}'
+if head -1 "$KDIR/Module.symvers" 2>/dev/null | tr -d '\r' | grep -q "$(printf '\t')$"; then
+    LAYOUT_SUFFIX="$(printf '\t')"      # crc symbol module export <empty namespace>
+    echo "      tree layout: 5 columns (empty namespace column)"
+else
+    LAYOUT_SUFFIX=""
+    echo "      tree layout: 4 columns"
+fi
 
 if [ -f "$KDIR/Module.symvers" ]; then
     MERGED="$(mktemp)"
     awk -F'\t' 'NR==FNR { if (NF>=3) ours[$2]=1; next } { if (NF>=3 && !($2 in ours)) print }' \
         "$DEVICE_SYMVERS" "$KDIR/Module.symvers" \
         | awk "$SYMVERS_FILTER" > "$MERGED" || true
-    awk "$SYMVERS_FILTER" "$DEVICE_SYMVERS" >> "$MERGED" || true
+    awk -F'\t' -v sfx="$LAYOUT_SUFFIX" \
+        'NF>=3 && $1 ~ /^0x[0-9a-fA-F]+$/ { printf "%s\t%s\tvmlinux\tEXPORT_SYMBOL%s\n", $1, $2, sfx }' \
+        "$DEVICE_SYMVERS" >> "$MERGED" || true
 
     dropped_tree=$(awk 'BEGIN{FS="\t"} !(NF>=3 && $1 ~ /^0x[0-9a-fA-F]+$/)' "$KDIR/Module.symvers" | wc -l)
     echo "      tree symvers: $(wc -l < "$KDIR/Module.symvers") lines, $dropped_tree dropped as malformed"
