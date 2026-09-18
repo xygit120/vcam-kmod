@@ -80,21 +80,21 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# 2. build
+# 2. make the tree report the device's release, then build
+#
+# modpost writes `MODULE_INFO(vermagic, VERMAGIC_STRING)` into vcam.mod.c, and
+# VERMAGIC_STRING is UTS_RELEASE plus the config-derived flags. UTS_RELEASE
+# comes from include/generated/utsrelease.h, which kbuild derives from
+# include/config/kernel.release. So pinning those two files makes the build emit
+# the device's vermagic directly -- no post-build patching required.
 # --------------------------------------------------------------------------
-# The `.modinfo` vermagic field is sized by the string the build emits, and the
-# tree's own release is shorter than the device's (5.10.252-dirty, 57 bytes, vs
-# the device's 77). Widen the field up front so step 3 can rewrite it in place.
-SRCTREE="${SRCTREE:-${DDK_ROOT:-/opt/ddk}/src/$KMI}"
-if [ -d "$SRCTREE" ]; then
-    printf '%s' "-vcam-padding-0123456789-0123456789-0123456789-0123456789-pad" \
-        > "$SRCTREE/localversion" 2>/dev/null \
-        && echo "[2/4] wrote $SRCTREE/localversion to widen the vermagic field" \
-        || echo "[2/4] could not write $SRCTREE/localversion (continuing)"
-    if [ -f "$KDIR/include/config/kernel.release" ]; then
-        echo "      tree kernel.release before: $(cat "$KDIR/include/config/kernel.release")"
-    fi
-fi
+WANT_REL="${WANT_VERMAGIC%% *}"
+WAS_REL="$(make -s -C "$KDIR" kernelrelease 2>/dev/null || echo '?')"
+mkdir -p "$KDIR/include/generated" 2>/dev/null || true
+echo "$WANT_REL" > "$KDIR/include/config/kernel.release"
+printf '#define UTS_RELEASE "%s"\n' "$WANT_REL" > "$KDIR/include/generated/utsrelease.h"
+echo "[2/4] pinned the tree's release to $WANT_REL"
+echo "      (the tree reported: $WAS_REL)"
 
 rm -f "$MODSRC/vcam.ko"
 make -C "$KDIR" M="$MODSRC" modules -j"$(nproc)"
