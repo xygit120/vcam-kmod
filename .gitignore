@@ -1,0 +1,25 @@
+# build output
+build/
+out/
+*.o
+*.ko
+*.mod
+*.mod.c
+*.symvers
+*.order
+*.cmd
+.tmp_versions/
+Module.symvers
+modules.order
+
+# tooling
+compile_commands.json
+.cache/
+.clangd/
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

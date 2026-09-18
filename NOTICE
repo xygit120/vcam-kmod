@@ -1,0 +1,45 @@
+vcam.ko -- provenance and third-party material
+==============================================
+
+Original work (GPL-2.0)
+-----------------------
+Everything under src/, include/, host/, shim/, tools/, scripts/, plus README.md,
+BUILD-KO.md and verify/ioctl_abi_check.c, is an independent implementation and
+released under the GNU General Public License version 2 (see LICENSE).
+
+It contains no vendor source code. The behaviour it reproduces (a frame
+injection pool, the pose rule, the play-range gate, the format gating and the
+ownership rules) was derived from observing a locally-owned sample; only public
+kernel interfaces are used at runtime.
+
+Third-party files kept verbatim
+------------------------------
+verify/linux-asm-generic-ioctl.h
+    From the Linux kernel: include/uapi/asm-generic/ioctl.h.
+    License: GPL-2.0 WITH Linux-syscall-note (SPDX header retained in the file).
+    Purpose: the authoritative definition the module's portable ioctl encoding
+    is statically asserted against.
+
+verify/kmi_*.txt
+    GKI ABI symbol lists from AOSP's kernel/common
+    (android/abi_gki_aarch64_generic, _qcom, _mtk, _virtual_device, and the
+    vendor delta lists _oplus and _xiaomi, for the android13-5.10,
+    android14-6.1 and android15-6.6 branches).
+    License: GPL-2.0 (Linux kernel / ACK).
+    Purpose: check that the module's kernel symbol surface stays inside the GKI
+    KMI, i.e. that a plain out-of-tree kbuild works without patching modpost.
+
+Build-method references (not included, credited)
+-----------------------------------------------
+KernelSU   https://github.com/tiann/KernelSU
+    Cross-checked for how a loadable kernel module is built per KMI
+    (.github/workflows/ddk-lkm.yml, kernel/Makefile, kernel/build-all.sh) and
+    for the compatibility options such a build needs.
+
+DDK        https://github.com/5ec1cff/ddk
+    The tool that supplies the per-KMI prepared GKI kernel trees, clang
+    toolchain and kbuild environment used by those builds. No DDK files are
+    redistributed here; BUILD-KO.md only documents how to use it.
+
+Android Common Kernel / AOSP   https://android.googlesource.com/kernel/common
+    Source of the GKI ABI files listed above.
