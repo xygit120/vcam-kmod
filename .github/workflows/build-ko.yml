@@ -1,0 +1,59 @@
+name: Build vcam.ko
+
+# The runner is a Linux host with a full toolchain, which is the piece this
+# workspace lacks. The build runs inside the same DDK image KernelSU's CI uses
+# for its own loadable module, so KDIR, ARCH, LLVM=1 and the matching clang are
+# already in the environment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmi:
+        description: 'DDK KMI image tag'
+        required: false
+        default: 'android12-5.10-20260828'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'host/**'
+      - 'scripts/**'
+      - 'device/**'
+      - 'Makefile'
+      - '.github/workflows/build-ko.yml'
+
+jobs:
+  build:
+    name: vcam.ko for android12-5.10
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:android12-5.10-20260828
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show the build environment
+        run: |
+          set -x
+          echo "KDIR=${KDIR:-unset}"
+          echo "DDK_ROOT=${DDK_ROOT:-unset}"
+          clang --version | head -2
+          make --version | head -1
+          ls -l "${KDIR:-/nonexistent}/Module.symvers" 2>/dev/null || echo "no Module.symvers in KDIR"
+
+      - name: Build and verify vcam.ko
+        run: |
+          set -o pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          bash scripts/build-ko.sh 2>&1 | tee build.log
+
+      - name: Upload the module and the log
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-ko-android12-5.10
+          path: |
+            out/vcam.ko
+            build.log
+          if-no-files-found: error
+          retention-days: 30

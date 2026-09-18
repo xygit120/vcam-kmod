@@ -1,0 +1,17 @@
+# CRC	symbol	module	export
+# from the device's vendor modules (5.10.168-android12-9, MT6983)
+0x7c24b32d	module_layout	vmlinux	EXPORT_SYMBOL
+0x8f678b07	__stack_chk_guard	vmlinux	EXPORT_SYMBOL
+0x98a9d10c	__stack_chk_fail	vmlinux	EXPORT_SYMBOL
+0x6331d19e	misc_register	vmlinux	EXPORT_SYMBOL
+0xdcef2da4	misc_deregister	vmlinux	EXPORT_SYMBOL
+0x6a6d5fb3	dma_buf_get	vmlinux	EXPORT_SYMBOL
+0x98c2b0fc	dma_buf_put	vmlinux	EXPORT_SYMBOL
+0x574add77	__mutex_init	vmlinux	EXPORT_SYMBOL
+0xeb9065d9	mutex_lock	vmlinux	EXPORT_SYMBOL
+0xe8b268ae	mutex_unlock	vmlinux	EXPORT_SYMBOL
+0xdcb764ad	memset	vmlinux	EXPORT_SYMBOL
+0x4829a47e	memcpy	vmlinux	EXPORT_SYMBOL
+0xaf507de1	__arch_copy_from_user	vmlinux	EXPORT_SYMBOL
+0x6b2941b2	__arch_copy_to_user	vmlinux	EXPORT_SYMBOL
+0xc5850110	printk	vmlinux	EXPORT_SYMBOL

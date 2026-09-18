@@ -1,0 +1,1 @@
+5.10.168-android12-9-g04441ca93d05 SMP preempt mod_unload modversions aarch64

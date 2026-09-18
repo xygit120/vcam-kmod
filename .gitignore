@@ -11,6 +11,8 @@ out/
 .tmp_versions/
 Module.symvers
 modules.order
+# ...but the device profile's symvers is a checked-in build input, not an artifact
+!device/Module.symvers
 
 # tooling
 compile_commands.json
