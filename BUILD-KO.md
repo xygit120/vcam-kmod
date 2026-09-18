@@ -195,6 +195,26 @@ unprivileged `shell` user (uid 2000), which surfaces as a puzzling `EACCES` on
 `avc: denied` record appears for the `open`. Use the quoting of the example
 above.
 
+## Loading it on every boot
+
+`packaging/ksu-module/` is a minimal KernelSU/Magisk module: `module.prop` plus a
+`post-fs-data.sh` that does one `insmod`. Install it by dropping the directory in
+place with the built module next to it:
+
+```bash
+adb push vcam.ko /data/local/tmp/
+adb push packaging/ksu-module /data/local/tmp/
+adb shell "su -c 'mkdir -p /data/adb/modules/vcam_kmod \
+  && cp /data/local/tmp/vcam.ko /data/local/tmp/ksu-module/* /data/adb/modules/vcam_kmod/ \
+  && chmod 755 /data/adb/modules/vcam_kmod/post-fs-data.sh'"
+```
+
+`rm -rf /data/adb/modules/vcam_kmod` uninstalls it again; there is no other state
+to undo. Whether KernelSU actually runs the script at boot could not be verified
+without rebooting the phone -- what *was* verified is the script itself: after
+`rmmod vcam`, running `post-fs-data.sh` by hand loads the module (`rc=0`) and
+leaves `/dev/vcam` present.
+
 ## Reference
 
 * KernelSU module build: `tiann/KernelSU` -- `.github/workflows/ddk-lkm.yml`,

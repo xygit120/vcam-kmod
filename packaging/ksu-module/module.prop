@@ -1,0 +1,6 @@
+id=vcam_kmod
+name=vcam kernel module
+version=0.1
+versionCode=1
+author=VCAM_DEV offline reconstruction
+description=Kernel-side dma-buf frame pool with /dev/vcam control plane (kernel port of 18.0.apk data plane). Delete this directory to uninstall.
