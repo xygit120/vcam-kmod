@@ -82,6 +82,20 @@ fi
 # --------------------------------------------------------------------------
 # 2. build
 # --------------------------------------------------------------------------
+# The `.modinfo` vermagic field is sized by the string the build emits, and the
+# tree's own release is shorter than the device's (5.10.252-dirty, 57 bytes, vs
+# the device's 77). Widen the field up front so step 3 can rewrite it in place.
+SRCTREE="${SRCTREE:-${DDK_ROOT:-/opt/ddk}/src/$KMI}"
+if [ -d "$SRCTREE" ]; then
+    printf '%s' "-vcam-padding-0123456789-0123456789-0123456789-0123456789-pad" \
+        > "$SRCTREE/localversion" 2>/dev/null \
+        && echo "[2/4] wrote $SRCTREE/localversion to widen the vermagic field" \
+        || echo "[2/4] could not write $SRCTREE/localversion (continuing)"
+    if [ -f "$KDIR/include/config/kernel.release" ]; then
+        echo "      tree kernel.release before: $(cat "$KDIR/include/config/kernel.release")"
+    fi
+fi
+
 rm -f "$MODSRC/vcam.ko"
 make -C "$KDIR" M="$MODSRC" modules -j"$(nproc)"
 BUILT="$MODSRC/vcam.ko"
@@ -128,7 +142,9 @@ assert i >= 0, 'no vermagic field in .modinfo'
 start = off + i + len(key)
 end = data.find(b'\0', start)
 room = end - start
-assert len(want) <= room, 'vermagic does not fit (%d > %d)' % (len(want), room)
+if len(want) > room:
+    raise SystemExit('vermagic does not fit: need %d bytes, the field has %d '
+                     '(rebuild with a longer localversion)' % (len(want), room))
 data[start:start + len(want)] = want.encode()
 data[start + len(want):end] = b'\0' * (room - len(want))
 open(ko, 'wb').write(data)

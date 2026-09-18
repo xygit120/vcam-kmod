@@ -47,6 +47,11 @@ jobs:
           set -x
           sed -n '/^static int read_dump/,/^}/p' /opt/ddk/src/android12-5.10/scripts/mod/modpost.c | head -70
           head -1 "${KDIR:-/nonexistent}/Module.symvers" | cat -A
+          echo "--- how the vermagic string is produced ---"
+          grep -n 'KBUILD_VERMAGIC\|MODULE_VERMAGIC\|vermagic' /opt/ddk/src/android12-5.10/Makefile | head -12
+          grep -n 'vermagic\|-V ' /opt/ddk/src/android12-5.10/scripts/Makefile.modpost | head -12
+          grep -n 'vermagic' /opt/ddk/src/android12-5.10/scripts/mod/modpost.c | head -12
+          cat "${KDIR:-/nonexistent}/include/config/kernel.release" 2>/dev/null || echo "(no kernel.release)"
 
       - name: Build and verify vcam.ko
         run: |
