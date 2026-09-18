@@ -38,6 +38,7 @@ src/vcam_ctrl.c         ioctl dispatch and userspace marshalling
 src/vcam_pool.c         dma-buf pool + ownership state machine
 src/vcam_logic.c        pose / range / format rules ported from the original
 tools/vcamctl.c         userspace client (dma-heap on Android, memfd on Linux)
+tools/vcam_selftest.c   on-device conformance run for the whole state machine
 shim/                   kernel-API shim for the offline harness (never kbuild)
 host/vcam_host_test.c   offline harness: compiles and runs the module sources
 verify/                 ioctl ABI check + the authoritative kernel ioctl header
@@ -83,16 +84,43 @@ python scripts/verify_kmi.py
 
 `scripts/verify.py` runs the first two in one go.
 
+## Verified on the target device
+
+A `.ko` was built by CI and then loaded on the actual phone -- a rooted Redmi
+K50 Pro (`matisse`, MT6983, Android 13, kernel `5.10.168-android12-9`). The full
+log is [`verify/device-run-k50pro-2026-09-18.txt`](verify/device-run-k50pro-2026-09-18.txt).
+
+```text
+$ su -c 'insmod /data/local/tmp/vcam.ko slots=3 backend=0'
+  calling  __cfi_jt_start+0x0/0x8 [vcam] @ 22984
+  ready: /dev/vcam slots=3 backend=0 abi=1
+
+$ su -c 'rmmod vcam; insmod /data/local/tmp/vcam.ko slots=3 backend=0'
+$ su -c '/data/local/tmp/vcam_selftest'     # asserts against a fresh pool
+  note  frame buffer: /dev/dma_heap/system, fd=5, 6144 bytes
+  PASS  REGISTER_BUF
+  PASS    resolved_angle (autopose 90) = 180
+  PASS  SUBMIT into a HELD slot (tearing guard): refused with Resource busy
+  PASS  UNREGISTER a HELD slot: refused with Resource busy
+  PASS  DEQUEUE drops the frame past range_end: refused
+vcam_selftest: ok (0 failure(s))
+```
+
+That run pinned a **real dma-buf** allocated from `/dev/dma_heap/system` (the
+memfd fallback cannot prove this: `dma_buf_get()` rejects a memfd), and it
+exercised the pose rules, the tearing guard, the range/loop decision and every
+counter in `vcam_stats`. SELinux was enforcing throughout, and `rmmod` +
+`insmod` works repeatedly, so no dma-buf reference is leaked.
+
 ## Not verified
 
-**No `.ko` has been built or loaded.** Building one needs a Linux kernel tree, an
-aarch64 cross toolchain and kbuild, none of which existed in the environment
-where this was written. [BUILD-KO.md](BUILD-KO.md) gives three ways to produce it
-(the `ddk` CLI, the DDK container used by KernelSU's CI, or your device's own
-kernel tree) plus the deployment and integration notes. The device-specific step
-that remains is binding a pool dma-buf into the target camera driver; the README
-sections in [BUILD-KO.md](BUILD-KO.md) and `include/vcam_kmod.h` describe the
-entry points and the `dma_buf_begin_cpu_access`/`end_cpu_access` requirement.
+The step that remains is the device-specific one: binding a pool dma-buf into the
+target's camera driver, i.e. the `backend=1` glue. A kernel-side binding point
+needs the kernel or the vendor camera driver under your control, which is the
+real prerequisite for this approach; [docs/INTEGRATION.md](docs/INTEGRATION.md)
+and `include/vcam_kmod.h` describe the two entry points and the
+`dma_buf_begin_cpu_access`/`end_cpu_access` requirement. `backend=0` (the
+bridge) is what the device run above validated.
 
 ## Deploying
 

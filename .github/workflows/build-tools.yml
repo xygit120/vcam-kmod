@@ -1,0 +1,57 @@
+name: Build static aarch64 userspace tools
+
+# vcamctl (the operator CLI) and vcam_selftest (the on-device conformance run)
+# are static aarch64 binaries. They need no bionic headers and no NDK: zig ships
+# a complete cross toolchain, so a plain runner produces an ELF that runs on any
+# arm64 Android kernel.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/**'
+      - 'include/vcam_uapi.h'
+      - '.github/workflows/build-tools.yml'
+
+jobs:
+  tools:
+    name: vcamctl + vcam_selftest (aarch64, static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        run: |
+          set -eux
+          ver=0.13.0
+          curl -fsSL -o zig.tar.xz \
+            "https://ziglang.org/download/${ver}/zig-linux-x86_64-${ver}.tar.xz"
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-linux-x86_64-${ver}" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          set -eux
+          mkdir -p out
+          zig cc -target aarch64-linux-musl -static -O2 -Wall -Wextra \
+            -DVCAM_USE_DMA_HEAP -Iinclude tools/vcamctl.c -o out/vcamctl
+          zig cc -target aarch64-linux-musl -static -O2 -Wall -Wextra \
+            -Iinclude tools/vcam_selftest.c -o out/vcam_selftest
+
+      - name: Check they really are static aarch64 binaries
+        run: |
+          set -eux
+          file out/vcamctl out/vcam_selftest
+          readelf -h out/vcam_selftest | grep -E 'Class|Type|Machine'
+          readelf -d out/vcam_selftest || echo "no dynamic section (fully static)"
+
+      - name: Upload the tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-tools-aarch64
+          path: |
+            out/vcamctl
+            out/vcam_selftest
+          if-no-files-found: error
+          retention-days: 30

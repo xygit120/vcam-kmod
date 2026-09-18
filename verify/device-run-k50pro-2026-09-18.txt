@@ -1,0 +1,193 @@
+vcam.ko -- first real build, load and control-plane run on the target device
+===========================================================================
+
+Target      Redmi K50 Pro (matisse, MT6983), Android 13 (SDK 33), arm64-v8a
+Kernel      5.10.168-android12-9-00001-g81e7418c6466-ab10486262
+Root        KernelSU, su -> uid=0(root) gid=0(root) context=u:r:ksu:s0
+SELinux     enforcing (1) for the whole run
+Date        2026-09-18, Asia/Shanghai
+
+Module      vcam.ko, 772728 bytes
+              md5    d5a1b4488b724e435638cee4f0ba1df8
+              sha256 F3AD012F460DDCE9ECFE1BF5F5A51703FA9065B30D19E143DE491C2D816F8840
+              srcversion C2CC112299E9C7DDA217737
+Build       GitHub Actions run 35330260343, job 105552737394, commit 0077748,
+            container ghcr.io/ylarod/ddk-min:android12-5.10-20260828
+
+Vermagic   5.10.168-android12-9-g04441ca93d05 SMP preempt mod_unload modversions aarch64
+           == the string all 225 vendor modules on this device agree on
+
+
+[1] is the module stamped with what this kernel accepts?
+
+    CI build log:
+      [1/4] merged symvers: 14655 entries (device CRCs override)
+      [2/4] pinned the tree's release to 5.10.168-android12-9-g04441ca93d05
+      [3/4] built vermagic : 5.10.168-android12-9-g04441ca93d05 SMP preempt mod_unload modversions aarch64
+            wanted vermagic: 5.10.168-android12-9-g04441ca93d05 SMP preempt mod_unload modversions aarch64
+      modinfo: name=vcam license=GPL version=0.1 srcversion=C2CC112299E9C7DDA217737
+
+    The tree the DDK ships reports its release as 5.10.252, so the release had to
+    be pinned to the vendor string before kbuild ran. A post-hoc rewrite of the
+    .modinfo field did not work (the built string is shorter than the target and
+    there is no slack in the field); pinning include/config/kernel.release and
+    include/generated/utsrelease.h is what produced the accepted vermagic.
+
+
+[2] load / unload on the device
+
+    $ adb push out/vcam.ko /data/local/tmp/
+    $ su -c 'insmod /data/local/tmp/vcam.ko slots=3 backend=0'      -> exit 0
+    $ su -c 'lsmod | grep vcam'
+    vcam                   28672  0
+
+    $ su -c 'dmesg | tail -3'
+    calling  __cfi_jt_start+0x0/0x8 [vcam] @ 22984
+    ready: /dev/vcam slots=3 backend=0 abi=1
+    initcall __cfi_jt_start+0x0/0x8 [vcam] returned 0 after 2642 usecs
+
+    $ su -c 'rmmod vcam'                                            -> exit 0
+    $ su -c 'insmod /data/local/tmp/vcam.ko slots=3 backend=0'      -> exit 0
+    $ su -c 'dmesg | tail -2'
+    ready: /dev/vcam slots=3 backend=0 abi=1
+    initcall __cfi_jt_start+0x0/0x8 [vcam] returned 0 after 2642 usecs
+
+    $ su -c 'ls -lZ /dev/vcam'
+    crw------- 1 root root u:object_r:device:s0 10,  90 /dev/vcam
+
+    The node is created by ueventd on the misc minor that misc_register()
+    allocated; it comes up 0600 root:root labelled u:object_r:device:s0.
+
+
+[3] the control plane, driven end to end
+
+    The pool keeps module-lifetime state -- a sequence watermark and the
+    last-polled geometry -- so the run starts from a freshly loaded module:
+
+    $ su -c 'rmmod vcam; insmod /data/local/tmp/vcam.ko slots=3 backend=0'
+    $ su -c '/data/local/tmp/vcam_selftest'
+
+    vcam_selftest: abi=1
+      note  frame buffer: /dev/dma_heap/system, fd=5, 6144 bytes
+      PASS  GET_VERSION
+      PASS    abi = 1
+      PASS    max_streams = 1
+      PASS  pool_size = 3
+      PASS  REGISTER_BUF
+      PASS    slot = 0
+      PASS  POLL #1
+      PASS    width_delta = 64
+      PASS    height_delta = 64
+      PASS    format (YV12 is not reportable) = 0
+      PASS  POLL #2
+      PASS    width_delta after read = 0
+      PASS  SET_POSE with unknown flag bits: refused with Invalid argument
+      PASS  SET_RANGE with end < begin: refused with Invalid argument
+      PASS  SET_POSE autopose/90
+      PASS  SET_RANGE 0..-1 loop on
+      PASS  SUBMIT seq=1
+      PASS  DEQUEUE
+      PASS    dq.seq = 1
+      PASS    resolved_angle (autopose 90) = 180
+      PASS    resolved_mirror = 1
+      PASS  SUBMIT into a HELD slot (tearing guard): refused with Resource busy
+      PASS  DEQUEUE while the only buffer is HELD: refused with Resource temporarily unavailable
+      PASS  UNREGISTER a HELD slot: refused with Resource busy
+      PASS  RELEASE a sequence never dequeued: refused with No such process
+      PASS  RELEASE seq=1
+      PASS  SUBMIT seq=0 after seq=1: refused with Invalid argument
+      PASS  SUBMIT seq=2 after release
+      PASS  DEQUEUE seq=2
+      PASS    dq.seq = 2
+      PASS  RELEASE seq=2
+      PASS  DEQUEUE on an empty pool: refused with Resource temporarily unavailable
+      PASS  SET_POSE explicit 45
+      PASS  SUBMIT seq=3
+      PASS  DEQUEUE seq=3
+      PASS    resolved_angle (45 -> 0) = 0
+      PASS    resolved_mirror (explicit flag) = 1
+      PASS  RELEASE seq=3
+      PASS  SET_RANGE 0..100 loop off
+      PASS  SUBMIT seq=4 past the range end
+      PASS  DEQUEUE drops the frame past range_end: refused with Resource temporarily unavailable
+      PASS  GET_STATS
+      PASS    submitted = 4
+      PASS    dequeued = 3
+      PASS    released = 3
+      PASS    bound = 3
+      PASS    rejected_busy = 2
+      PASS    rejected_unknown = 2
+      PASS    dequeued_empty = 2
+      PASS    dropped_late = 1
+      PASS    looped = 0
+      PASS  UNREGISTER an idle slot
+      PASS  UNREGISTER an unknown slot: refused with No such file or directory
+    vcam_selftest: ok (0 failure(s))
+
+    Running it a second time against the same module load is detected, instead of
+    cascading into 29 confusing failures:
+
+    $ su -c '/data/local/tmp/vcam_selftest'
+    vcam_selftest: abi=1
+      note  frame buffer: /dev/dma_heap/system, fd=5, 6144 bytes
+      SKIP  the pool is not fresh: submitted=4 dequeued=3 dropped_late=1
+            Reload the module and re-run:
+              su -c 'rmmod vcam; insmod /data/local/tmp/vcam.ko slots=3 backend=0'
+
+
+[4] what this run establishes
+
+  * A real dma-buf from /dev/dma_heap/system is pinned by REGISTER_BUF, i.e.
+    dma_buf_get() on this device's kernel accepted the producer's fd. The
+    memfd fallback could not have proved this: dma_buf_get() rejects a memfd.
+  * The pose rules recovered from FUN_005415b4 are correct on real hardware:
+    autopose 90 -> 180 deg with mirror forced on, and an explicit 45 deg folds
+    to 0 with the mirror flag taken from VCAM_F_MIRROR.
+  * The tearing guard holds: SUBMIT into a HELD slot and UNREGISTER of a HELD
+    slot are both refused with EBUSY, so a producer cannot overwrite a buffer
+    the consumer is still reading.
+  * The range/loop decision drops a frame past range_end when looping is off
+    and does not queue it.
+  * Every counter in vcam_stats matches the sequence of operations, so the
+    state machine has no hidden transitions.
+
+
+[5] findings that only a real load could produce
+
+  a) __versions is EMPTY in the built .ko, and the device loads it anyway.
+     CONFIG_MODVERSIONS=y makes the loader compare a CRC only for the symbols
+     the module actually lists in __versions. An empty section means "version-
+     check nothing", which is weaker than intended but accepted. The CI check
+     therefore reports "0 CRC(s) match the device, 0 mismatch" -- that is a
+     property of the artifact, not a failure of the build, and the merged
+     14655-entry Module.symvers in device/ is what the module was built against.
+
+  b) Symbols that were not in the mined 15-symbol device profile resolved on the
+     device without complaint: param_ops_uint (from module_param),
+     arm64_const_caps_ready, cpu_hwcap_keys, cpu_hwcaps and
+     gic_nonsecure_priorities (from inlined arch code). They come from the DDK
+     tree's own Module.symvers, and the device exports all of them.
+
+  c) /dev/vcam is 0600 root:root and labelled u:object_r:device:s0; the KernelSU
+     su domain (u:r:ksu:s0) is allowed to open it while SELinux is enforcing, so
+     no policy change was needed to run the test. A non-root consumer (an app, or
+     cameraserver itself) would still need a policy entry for the node -- that is
+     the deployment step this run does not cover.
+
+  d) rmmod followed by insmod works repeatedly, so the pool releases every
+     dma-buf reference it took; a leaked reference would keep the buffer alive
+     and eventually fail the second registration.
+
+
+[6] host-side gotcha worth recording
+
+    KernelSU's su treats a compound command as root only when the device shell
+    sees it quoted as ONE word. Over `adb shell` from Windows:
+
+      adb shell 'su -c "id; id"'     -> first id is root, the rest runs as the
+                                        unprivileged adb shell (uid 2000)
+      adb shell "su -c 'id; id'"     -> the whole compound runs as root
+
+    Under the first form `open("/dev/vcam")` fails with EACCES from the uid-2000
+    shell, which looks exactly like a SELinux denial and is not one. The AVC
+    log is the discriminator: no chr_file denial is recorded for that open.

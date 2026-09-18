@@ -13,6 +13,9 @@
  *
  * Build (host or device):
  *   aarch64-linux-android21-clang -O2 -Wall -Wextra -I../include vcamctl.c -o vcamctl
+ * Static Android build from any host toolchain (no bionic headers needed):
+ *   zig cc -target aarch64-linux-musl -static -DVCAM_USE_DMA_HEAP \
+ *          -I../include vcamctl.c -o vcamctl
  */
 
 #define _GNU_SOURCE
@@ -25,17 +28,32 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "vcam_uapi.h"
 
 #define VCAM_DEV "/dev/vcam"
 
-#ifndef __ANDROID__
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001U
 #endif
-static int memfd_create(const char *name, unsigned int flags);
+
+/* bionic only grew memfd_create() in API 30 and does not declare it at all in
+ * the headers a cross build sees, so never depend on a libc prototype. */
+#ifndef SYS_memfd_create
+# if defined(__aarch64__)
+#  define SYS_memfd_create 279
+# else
+#  define SYS_memfd_create 319
+# endif
+#endif
+
+#if !defined(__ANDROID__) && !defined(VCAM_USE_DMA_HEAP)
+static int vcam_memfd_create(const char *name, unsigned int flags)
+{
+	return (int)syscall(SYS_memfd_create, name, flags);
+}
 #endif
 
 /* Allocate a buffer usable as a dma-buf.
@@ -46,7 +64,7 @@ static int memfd_create(const char *name, unsigned int flags);
  */
 static int alloc_buffer(size_t size, unsigned char **map_out)
 {
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(VCAM_USE_DMA_HEAP)
 	struct dma_heap_allocation_data {
 		uint64_t len;
 		uint32_t fd;
@@ -79,7 +97,7 @@ static int alloc_buffer(size_t size, unsigned char **map_out)
 	}
 	return (int)data.fd;
 #else
-	int fd = memfd_create("vcam-frame", MFD_CLOEXEC);
+	int fd = vcam_memfd_create("vcam-frame", MFD_CLOEXEC);
 
 	if (fd < 0) {
 		perror("memfd_create");

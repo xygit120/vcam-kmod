@@ -131,6 +131,70 @@ adb shell su -c 'ls -lZ /dev/vcam'
 `vermagic` mismatch shows up as `insmod: invalid module format`; that is the
 kernel-side analogue of the ABI-variant fragility the sample has in userspace.
 
+## What the first real build proved
+
+`vcam.ko` has now been built by this repository's CI and loaded on the K50 Pro
+whose profile is in [`device/`](device). Two things are worth carrying forward.
+
+* **Pinning the release works; rewriting the `.modinfo` field afterwards does
+  not.** The DDK tree reports its own release as `5.10.252`, so
+  `scripts/build-ko.sh` pins `include/config/kernel.release` and
+  `include/generated/utsrelease.h` to the device's string *before* kbuild runs.
+  The rewrite-after-the-fact route fails because the built string is shorter than
+  the target and the field has no slack in it.
+* **The built `.ko` has an empty `__versions` section, and the device loads it
+  anyway.** With `CONFIG_MODVERSIONS=y` the loader compares a CRC only for the
+  symbols the module lists, so an empty section means nothing is version-checked.
+  The CI CRC check consequently reports `0 CRC(s) match, 0 mismatch` -- read that
+  as "the check had nothing to check", not as a pass. The symbols the module
+  imports resolved against the DDK tree's own `Module.symvers`, including ones the
+  15-symbol device profile does not list (`param_ops_uint`,
+  `arm64_const_caps_ready`, `cpu_hwcap_keys`, `cpu_hwcaps`,
+  `gic_nonsecure_priorities`).
+
+The load, the `dmesg` lines and the full conformance run are recorded in
+[`verify/device-run-k50pro-2026-09-18.txt`](verify/device-run-k50pro-2026-09-18.txt).
+
+## Building the userspace side
+
+Both tools under `tools/` are plain C and need no Android SDK and no NDK: zig
+ships a complete cross toolchain.
+
+```bash
+zig cc -target aarch64-linux-musl -static -O2 -Wall -Wextra \
+  -DVCAM_USE_DMA_HEAP -Iinclude tools/vcamctl.c      -o vcamctl
+zig cc -target aarch64-linux-musl -static -O2 -Wall -Wextra \
+  -Iinclude tools/vcam_selftest.c -o vcam_selftest
+```
+
+`.github/workflows/build-tools.yml` does exactly this and uploads the binaries.
+`-DVCAM_USE_DMA_HEAP` selects the dma-heap allocation path; without it the CLI
+falls back to a memfd, which is fine on a desktop Linux host but is **not**
+registrable with the module, because `dma_buf_get()` rejects a memfd.
+
+Then the conformance run:
+
+```bash
+adb push vcam_selftest /data/local/tmp/
+adb shell "su -c 'chmod 755 /data/local/tmp/vcam_selftest'"
+adb shell "su -c 'rmmod vcam; insmod /data/local/tmp/vcam.ko slots=3 backend=0'"
+adb shell "su -c '/data/local/tmp/vcam_selftest'"
+# -> vcam_selftest: ok (0 failure(s))
+```
+
+The reload is not optional: the pool keeps a sequence watermark and the
+last-polled geometry for the module's lifetime, and the test's assertions are
+about a fresh pool. A second run against the same load reports
+`SKIP the pool is not fresh` (exit 2) rather than a cascade of failures.
+
+One trap that costs more time than it should: on a KernelSU device the device
+shell has to see the command as **one quoted word** for the whole thing to run as
+root. `adb shell 'su -c "cmd1; cmd2"'` runs `cmd1` as root and then `cmd2` as the
+unprivileged `shell` user (uid 2000), which surfaces as a puzzling `EACCES` on
+`/dev/vcam` that is *not* a SELinux denial -- the discriminator is that no
+`avc: denied` record appears for the `open`. Use the quoting of the example
+above.
+
 ## Reference
 
 * KernelSU module build: `tiann/KernelSU` -- `.github/workflows/ddk-lkm.yml`,

@@ -52,6 +52,12 @@ dedicated case.
 The bridge mode is also what `tools/vcamctl.c` exercises, so the state machine can
 be validated before any driver work is done.
 
+Bridge mode is the part that has actually been run on hardware: a full
+conformance pass on a rooted Redmi K50 Pro, with SELinux enforcing, is recorded in
+[`verify/device-run-k50pro-2026-09-18.txt`](../verify/device-run-k50pro-2026-09-18.txt).
+`backend=1` -- the `vcam_pool_acquire()`/`vcam_pool_release()` glue below -- is
+the piece that still needs the target's camera driver.
+
 ## Format and layout knowledge that matters more than the code
 
 Plane geometry is where implementations fail, not the surrounding code. A sibling
